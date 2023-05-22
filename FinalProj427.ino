@@ -10,23 +10,28 @@
 
 #define TERMINATOR 0 // Ascii 0 is end of string.
 
-#include <Stepper.h>
 #include <Wire.h>
+#include <AccelStepper.h>
+#include <MultiStepper.h>
 
 #define PI 3.14159
 // in1, in3, in2, in4
-Stepper stepperLeft = Stepper(STEPS_PER_REVOLUTION_LEFT, A3, A1, A2, A0);
+AccelStepper myStepperLeft(AccelStepper::HALF4WIRE, 9, 11, 10, 12);
 // in1, in3, in2, in4
-Stepper stepperRight = Stepper(STEPS_PER_REVOLUTION_RIGHT, 10, 6, 9, 5);
+AccelStepper myStepperRight(AccelStepper::HALF4WIRE, A3, A1, A2, A0);
+
+MultiStepper multiStepper;
+
 long numStepsLeft = 0;
 long numStepsRight = 0;
+long posLeft = 0;
+long posRight = 0;
+long posList[2] = {0, 0};
 
 volatile boolean isFreshI2C = true; // goes true whenever finishedReceivingI2C=true is handled. basicaly the next I2C byte is going to be the beginning of a new message.
 volatile boolean finishedReceivingI2C = false; // goes true when the terminator character is received.
 volatile byte lengthI2C = 0; // length of the spi message, not including EOT byte.
 volatile byte i2cIncomingChars[I2C_BUFFER]; // store up to I2C_BUFFER bytes of info from I2C.
-
-volatile short direction = 1; // Direction = 1 is forward, direction = -1 is backward.
 
 volatile byte oldSREG;
 
@@ -41,8 +46,16 @@ void setup() {
   Wire.begin(I2C_ADDRESS);
   Wire.onReceive(handleI2C);
   Serial.begin(115200);
-  stepperLeft.setSpeed(MAX_FORWARD);
-  stepperRight.setSpeed(MAX_FORWARD);
+  myStepperLeft.setMaxSpeed(1000);
+  myStepperRight.setMaxSpeed(1000);
+  multiStepper.addStepper(myStepperLeft);
+  multiStepper.addStepper(myStepperRight);
+
+  posList[0] = 5000;
+  posList[1] = 5000;
+
+  multiStepper.moveTo(posList);
+
   numStepsLeft = 30000;
   numStepsRight = 30000;
   wheelDiameterTimesPi=WHEEL_DIAMETER * PI;
@@ -52,7 +65,7 @@ void setup() {
 
 void handleI2C(int byteCount) {
   noInterrupts();
-  // Serial.print("New Data Available: ");
+  Serial.print("New Data Available: ");
   if(isFreshI2C) {
     lengthI2C = 0; // "reset" the i2c
   }
@@ -60,10 +73,6 @@ void handleI2C(int byteCount) {
   while(Wire.available()) {
     char c = Wire.read();
     // Serial.println(c, HEX);
-    // if (c == TERMINATOR) {
-    //   finishedReceivingI2C = true;
-    //   // dont do an else here, we could also use the terminator to find the end of the string.
-    // }
     
     i2cIncomingChars[lengthI2C] = c; // save the byte to the char array
     lengthI2C +=1;
@@ -71,12 +80,10 @@ void handleI2C(int byteCount) {
       finishedReceivingI2C = true;
     }
   }
-
-
   interrupts();
 }
 
-void calculateStepsAndRPM(long numSteps, int8_t degreesNum) {
+void calculatePos(long numSteps, int8_t degreesNum, int8_t direction) {
   rads = degreesNum * PI / 180;
   turnStepsFactor = rads * wheelBase / wheelDiameterTimesPi;
 
@@ -85,26 +92,23 @@ void calculateStepsAndRPM(long numSteps, int8_t degreesNum) {
   numStepsLeft = numSteps + turnSteps / 2;
   numStepsRight = numSteps - turnSteps / 2;
 
-  Serial.print("numStepsLeft: ");
-  Serial.println(numStepsLeft);
-  Serial.print("numStepsRight: ");
-  Serial.println(numStepsRight);
-
-  if(numStepsLeft <= numStepsRight) {
-    //turning left
-    double rpmLeft = ((double)numStepsLeft / numStepsRight) * MAX_FORWARD;
-    stepperLeft.setSpeed(rpmLeft);
-    Serial.print("RPMLeft: ");
-    Serial.println(rpmLeft);
-    stepperRight.setSpeed(MAX_FORWARD);
+  if(direction == 1) {
+    myStepperLeft.setCurrentPosition(0);
+    myStepperRight.setCurrentPosition(0);
+    myStepperLeft.setMaxSpeed(1000);
+    myStepperRight.setMaxSpeed(1000);
+    posList[0] = numStepsLeft;
+    posList[1] = -1 * numStepsRight;
+    multiStepper.moveTo(posList);
   }
-  else {
-    //turning right
-    double rpmRight = ((double)numStepsRight / numStepsLeft) * MAX_FORWARD;
-    stepperRight.setSpeed(rpmRight);
-    Serial.print("RPMRight: ");
-    Serial.println(rpmRight);
-    stepperLeft.setSpeed(MAX_FORWARD);
+  else if(direction == -1) {
+    myStepperLeft.setCurrentPosition(0);
+    myStepperRight.setCurrentPosition(0);
+    myStepperLeft.setMaxSpeed(1000);
+    myStepperRight.setMaxSpeed(1000);
+    posList[0] = -1 * numStepsLeft;
+    posList[1] = numStepsRight;
+    multiStepper.moveTo(posList);
   }
 }
 
@@ -133,36 +137,37 @@ void loop() {
 
     switch(i2cIncomingChars[0]) {
       case 0x00: // forward case
-        direction = 1;
         dist = *(long*)&i2cIncomingChars[1];
-        // Serial.println(dist);
-        stepperLeft.setSpeed(MAX_FORWARD);
-        stepperRight.setSpeed(MAX_FORWARD);
-        numStepsLeft = dist;
-        numStepsRight = dist;
+        myStepperLeft.setCurrentPosition(0);
+        myStepperRight.setCurrentPosition(0);
+        myStepperLeft.setMaxSpeed(1000);
+        myStepperRight.setMaxSpeed(1000);
+        posList[0] = -1 * dist;
+        posList[1] = dist;
+        multiStepper.moveTo(posList);
         break;
       
       case 0x01: // reverse case
-        direction = -1; // go backwards
         dist = *(long*)&i2cIncomingChars[1];
-        stepperLeft.setSpeed(MAX_FORWARD);
-        stepperRight.setSpeed(MAX_FORWARD);
-        numStepsLeft = dist;
-        numStepsRight = dist;
+        myStepperLeft.setCurrentPosition(0);
+        myStepperRight.setCurrentPosition(0);
+        myStepperLeft.setMaxSpeed(1000);
+        myStepperRight.setMaxSpeed(1000);
+        posList[0] = dist;
+        posList[1] = -1 * dist;
+        multiStepper.moveTo(posList);
         break;
       
       case 0x02: // turning case forward
-        direction = 1;
         dist = *(long*)&i2cIncomingChars[1];
         angle = i2cIncomingChars[5]; // -90 to +90
-        calculateStepsAndRPM(dist, angle);
+        calculatePos(dist, angle, 1);
         break;
 
       case 0x03: // turning case backward
-        direction = -1;
         dist = *(long*)&i2cIncomingChars[1];
         angle = i2cIncomingChars[5]; // -90 to +90
-        calculateStepsAndRPM(dist, angle);
+        calculatePos(dist, angle, -1);
         break;
       default:
         Serial.println("Ruh roh, default in the i2c switch case");
@@ -178,23 +183,6 @@ void loop() {
     // SREG = oldSREG;
     interrupts();
   }
-  if(numStepsLeft > 0) {
-    stepperLeft.step(1 * direction);
-    numStepsLeft -= 1;
-  }
-  if(numStepsRight > 0) {
-    stepperRight.step(direction); // might need to add a -1 here
-    numStepsRight -= 1;
-  }
-
-  // delay(50);
-  // stepperLeft.step(200);
-  // delay(50);
-  // stepperLeft.step(-200);
-  // delay(50);
-  // stepperRight.step(200);
-  // delay(50);
-  // stepperRight.step(-200);
-  //   Serial.println("hey");
-
+  // Serial.println("hi");
+  multiStepper.run(); // Calls runSpeed() on all the managed steppers that have not acheived their target position.
 }
