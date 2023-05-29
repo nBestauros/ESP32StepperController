@@ -1,3 +1,6 @@
+#include <Config.h>
+#include <EasyBuzzer.h>
+
 #define I2C_ADDRESS 0x23
 #define I2C_BUFFER 128
 
@@ -7,6 +10,8 @@
 #define MAX_FORWARD 12 // initial forward speed
 #define STEPS_PER_REVOLUTION_LEFT 2200
 #define STEPS_PER_REVOLUTION_RIGHT 2048 
+
+#define MAX_SPEED 1000
 
 #define TERMINATOR 0 // Ascii 0 is end of string.
 
@@ -35,26 +40,40 @@ volatile byte i2cIncomingChars[I2C_BUFFER]; // store up to I2C_BUFFER bytes of i
 
 volatile byte oldSREG;
 
+int buzzerDelay;
+
 float wheelDiameterTimesPi;
 int wheelBase;
 
 float rads;
 float turnStepsFactor;
 
+int lastBeepTime;
+
+unsigned int frequency = 700;
+unsigned int onDuration = 200;
+unsigned int offDuration = 500;
+unsigned int beeps = 200;
+unsigned int pauseDuration = 500;
+unsigned int cycles = 1; // really big because something else will stop it
+
 
 void setup() {
   Wire.begin(I2C_ADDRESS);
   Wire.onReceive(handleI2C);
   Serial.begin(115200);
-  myStepperLeft.setMaxSpeed(1000);
-  myStepperRight.setMaxSpeed(1000);
+  myStepperLeft.setMaxSpeed(MAX_SPEED);
+  myStepperRight.setMaxSpeed(MAX_SPEED);
   multiStepper.addStepper(myStepperLeft);
   multiStepper.addStepper(myStepperRight);
 
-  posList[0] = 5000;
-  posList[1] = 5000;
+  posList[0] = -50000;
+  posList[1] = 50000;
 
   multiStepper.moveTo(posList);
+  EasyBuzzer.setPin(A5);
+  buzzerDelay = 0;
+  lastBeepTime = millis();
 
   numStepsLeft = 30000;
   numStepsRight = 30000;
@@ -95,8 +114,8 @@ void calculatePos(long numSteps, int8_t degreesNum, int8_t direction) {
   if(direction == 1) {
     myStepperLeft.setCurrentPosition(0);
     myStepperRight.setCurrentPosition(0);
-    myStepperLeft.setMaxSpeed(1000);
-    myStepperRight.setMaxSpeed(1000);
+    myStepperLeft.setMaxSpeed(MAX_SPEED);
+    myStepperRight.setMaxSpeed(MAX_SPEED);
     posList[0] = numStepsLeft;
     posList[1] = -1 * numStepsRight;
     multiStepper.moveTo(posList);
@@ -104,8 +123,8 @@ void calculatePos(long numSteps, int8_t degreesNum, int8_t direction) {
   else if(direction == -1) {
     myStepperLeft.setCurrentPosition(0);
     myStepperRight.setCurrentPosition(0);
-    myStepperLeft.setMaxSpeed(1000);
-    myStepperRight.setMaxSpeed(1000);
+    myStepperLeft.setMaxSpeed(MAX_SPEED);
+    myStepperRight.setMaxSpeed(MAX_SPEED);
     posList[0] = -1 * numStepsLeft;
     posList[1] = numStepsRight;
     multiStepper.moveTo(posList);
@@ -113,6 +132,12 @@ void calculatePos(long numSteps, int8_t degreesNum, int8_t direction) {
 }
 
 void loop() {
+  EasyBuzzer.update();
+  buzzerDelay += 1;
+  if(millis() > (lastBeepTime + 1000) && myStepperLeft.distanceToGo() < 0 && myStepperRight.distanceToGo() > 0) {
+    EasyBuzzer.singleBeep(1000, 400);
+    lastBeepTime = millis() + 400;
+  }
   // Serial.println(digitalRead(16));
   if(finishedReceivingI2C) {
     // oldSREG = SREG;
@@ -140,19 +165,20 @@ void loop() {
         dist = *(long*)&i2cIncomingChars[1];
         myStepperLeft.setCurrentPosition(0);
         myStepperRight.setCurrentPosition(0);
-        myStepperLeft.setMaxSpeed(1000);
-        myStepperRight.setMaxSpeed(1000);
+        myStepperLeft.setMaxSpeed(MAX_SPEED);
+        myStepperRight.setMaxSpeed(MAX_SPEED);
         posList[0] = -1 * dist;
         posList[1] = dist;
         multiStepper.moveTo(posList);
+        EasyBuzzer.stopBeep();
         break;
       
       case 0x01: // reverse case
         dist = *(long*)&i2cIncomingChars[1];
         myStepperLeft.setCurrentPosition(0);
         myStepperRight.setCurrentPosition(0);
-        myStepperLeft.setMaxSpeed(1000);
-        myStepperRight.setMaxSpeed(1000);
+        myStepperLeft.setMaxSpeed(MAX_SPEED);
+        myStepperRight.setMaxSpeed(MAX_SPEED);
         posList[0] = dist;
         posList[1] = -1 * dist;
         multiStepper.moveTo(posList);
@@ -162,6 +188,7 @@ void loop() {
         dist = *(long*)&i2cIncomingChars[1];
         angle = i2cIncomingChars[5]; // -90 to +90
         calculatePos(dist, angle, 1);
+        EasyBuzzer.stopBeep();
         break;
 
       case 0x03: // turning case backward
@@ -170,6 +197,7 @@ void loop() {
         calculatePos(dist, angle, -1);
         break;
       default:
+        EasyBuzzer.stopBeep();
         Serial.println("Ruh roh, default in the i2c switch case");
     }
 
