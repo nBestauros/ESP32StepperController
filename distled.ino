@@ -1,32 +1,28 @@
-/*
-  Ultrasonic Sensor HC-SR04 and Arduino Tutorial
-
-  by Dejan Nedelkovski,
-  www.HowToMechatronics.com
-
-*/
 // defines pins numbers
-const int trigPin = 9;
-const int echoPin = 10;
+const int trigPin = A5;
+const int echoPin = A4;
 // defines variables
 long duration;
 int distance;
+const int numSamples = 25;
+int samples[numSamples];
+int sampleIndex = 0;
+int totalDistance = 0;
+int firstOver = 0;
+
 void setup() {
   pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
   pinMode(echoPin, INPUT); // Sets the echoPin as an Input
-  pinMode(6, OUTPUT);//If distance is 0-10
-  pinMode(7, OUTPUT);//If distance is 11-50
-  pinMode(8, OUTPUT);//If distance is 50-100
+  pinMode(13, OUTPUT);//If distance is 0-10
   Serial.begin(9600); // Starts the serial communication
 }
+
 void loop() {
   // Clears the trigPin
   digitalWrite(trigPin, LOW);
-  digitalWrite(6,LOW);
-  digitalWrite(7,LOW);
-  digitalWrite(8,LOW);
+  digitalWrite(13, LOW);
   delayMicroseconds(2);
-  // Sets the trigPin on HIGH state for 10 micro seconds
+  // Sets the trigPin on HIGH state for 10 microseconds
   digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
@@ -34,14 +30,25 @@ void loop() {
   duration = pulseIn(echoPin, HIGH);
   // Calculating the distance
   distance = duration * 0.034 / 2;
-  if (distance >= 0 && distance<5){
-    digitalWrite(6,HIGH);
-  }else if (distance >= 6 && distance<25){
-    digitalWrite(7,HIGH);
-  }else{
-    digitalWrite(8,HIGH);
+  
+  // Add the current distance to the rolling array
+  totalDistance -= samples[sampleIndex];
+  samples[sampleIndex] = distance;
+  totalDistance += samples[sampleIndex];
+  sampleIndex = (sampleIndex + 1) % numSamples;
+  if(sampleIndex == 0){
+    firstOver = 1; // if we have collected the first 100 samples, then we can start using this data
   }
-  // Prints the distance on the Serial Monitor
-  Serial.print("Distance: ");
-  Serial.println(distance);
+  
+  // Calculate the average distance
+  int averageDistance = totalDistance / numSamples;
+  
+  if (firstOver == 1 && averageDistance >= 0 && averageDistance <= 75) {
+    digitalWrite(13, HIGH);
+  } 
+  
+  // Prints the average distance on the Serial Monitor
+  Serial.print("Average Distance: ");
+  Serial.println(averageDistance);
+  
 }
