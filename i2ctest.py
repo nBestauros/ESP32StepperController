@@ -6,8 +6,8 @@ import atexit
 
 FOLLOWER_ADDRESS = 0x23
 
-FORWARD = 0x00
-BACKWARD = 0x01
+FORWARD = 0x01
+BACKWARD = 0x00 # FLIPPED IN ARDUINO CODE.
 TURN_FORWARD = 0x02
 TURN_BACKWARD = 0x03
 
@@ -15,6 +15,7 @@ def micros():
     return int(time.time() * 1000000)
 
 last_execution_time = micros()
+last_interrupt_time = micros()
 
 GPIO.setmode(GPIO.BOARD)
 interrupt_pin = 29
@@ -48,18 +49,27 @@ def convert_to_signed_hex_byte(number):
     return signed_byte
 
 emergency_data_1 = [0x03]
-emergency_data_1 += convert_to_hex_bytes(4000)
-emergency_data_1.append(convert_to_signed_hex_byte(-45))
+emergency_data_1 += convert_to_hex_bytes(6000)
+emergency_data_1.append(convert_to_signed_hex_byte(-70))
 
 emergency_data_2 = [0x03]
-emergency_data_2 += convert_to_hex_bytes(4000)
-emergency_data_2.append(convert_to_signed_hex_byte(-45))
+emergency_data_2 += convert_to_hex_bytes(6000)
+emergency_data_2.append(convert_to_signed_hex_byte(70))
 
 def pin_change_callback(channel):
+    no_interrupts()
     try:
         global last_execution_time
-        last_execution_time = micros()
-        no_interrupts()
+        global last_interrupt_time
+        current_time = micros()
+        if current_time-last_execution_time < 3000000:
+            interrupts()
+            return
+        print("interrupted")
+        last_execution_time = current_time
+        last_interrupt_time = current_time
+
+        
         bus=SMBus(1)
         num = random.randint(1,2)
         if num == 1:
@@ -71,6 +81,7 @@ def pin_change_callback(channel):
             print("Sent: ", emergency_data[i])
         bus.close()
         interrupts()
+        return
     except:
         try:
             interrupts()
@@ -92,17 +103,17 @@ interrupts()
 # format: [type, dist, dist, dist, dist, angle] (angle ignored in forward and backward cases, but it should still be sent)
 instructions = []
 
-instr1 = [0x00]
-instr1 += convert_to_hex_bytes(2500)
-instr1.append(convert_to_signed_hex_byte(0))
+instr1 = [0x03]
+instr1 += convert_to_hex_bytes(3000)
+instr1.append(convert_to_signed_hex_byte(-70))
 
 instr2 = [0x03]
 instr2 += convert_to_hex_bytes(3500)
 instr2.append(convert_to_signed_hex_byte(67))
 
 def instr_gen():
-    instr = [random.choice([FORWARD, BACKWARD, TURN_FORWARD, TURN_BACKWARD])]
-    instr += convert_to_hex_bytes(random.randint(50, 6000))
+    instr = [random.choice([FORWARD, FORWARD, TURN_FORWARD, TURN_FORWARD, FORWARD, TURN_FORWARD, FORWARD, TURN_FORWARD, FORWARD, BACKWARD, TURN_FORWARD, TURN_BACKWARD])]
+    instr += convert_to_hex_bytes(random.randint(2500, 7000))
     instr.append(convert_to_signed_hex_byte(random.randint(-89, 89)))
     return instr
 
@@ -122,13 +133,15 @@ print(instructions)
 
 while True:
     current_time = micros()
-    if current_time-last_execution_time < 5000:
+    if current_time-last_execution_time < 6000000:
         continue
     try:
         data = instr_gen() #generate new movement
+        # data=instr1
         last_execution_time = current_time
         no_interrupts()
         bus=SMBus(1)
+        print("sending new")
         for i in range(len(data)):
             bus.write_byte(FOLLOWER_ADDRESS, data[i])
             print("Sent: ", data[i])
