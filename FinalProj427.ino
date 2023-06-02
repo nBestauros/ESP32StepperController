@@ -4,8 +4,8 @@
 #define I2C_ADDRESS 0x23
 #define I2C_BUFFER 128
 
-#define WHEELBASE 10 // cm
-#define WHEEL_DIAMETER 5 // cm
+#define WHEELBASE 14 // cm
+#define WHEEL_DIAMETER 6 // cm
 
 #define MAX_FORWARD 12 // initial forward speed
 #define STEPS_PER_REVOLUTION_LEFT 2200
@@ -75,8 +75,6 @@ void setup() {
   buzzerDelay = 0;
   lastBeepTime = millis();
 
-  numStepsLeft = 30000;
-  numStepsRight = 30000;
   wheelDiameterTimesPi=WHEEL_DIAMETER * PI;
   wheelBase = WHEELBASE;
   interrupts();
