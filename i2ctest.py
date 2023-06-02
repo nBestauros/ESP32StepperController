@@ -125,7 +125,6 @@ while True:
     if current_time-last_execution_time < 5000:
         print(current_time-last_execution_time)
         continue
-    print("hi")
     try:
         data = instr_gen() #generate new movement
         last_execution_time = current_time
