@@ -1,4 +1,7 @@
 ﻿# ESP32StepperController
+## Project Video
+[Watch the video](https://youtu.be/t80UnqdxAfQ)
+
 
 
 # Autostart the python program on the Jetson:
